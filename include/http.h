@@ -2,8 +2,6 @@
 #define http_h
 
 // TODO: add request parameters here
-struct Request {
-  
-};
+struct Request {};
 
 #endif
