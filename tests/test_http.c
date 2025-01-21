@@ -1,5 +1,6 @@
 #include "rack.h"
 #include <stdio.h>
+#include <stdlib.h>
 
 char *get_home(struct Request *req) {
   return "<h1>Rack test</h1><p>Welcome to my website!</p>";

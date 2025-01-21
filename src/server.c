@@ -1,5 +1,6 @@
 #include "server.h"
 #include "string.h"
+#include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,7 +27,7 @@ struct Server new_server(int domain, int service, int protocol,
     exit(EXIT_FAILURE);
   }
 
-  if (bind(server.socket, (struct sockaddr *)&server.address,
+  if (bind(server.socket, (struct sockaddr*)&server.address,
            sizeof(server.address)) < 0) {
     perror("failed to bind to socket");
     exit(EXIT_FAILURE);
@@ -40,36 +41,59 @@ struct Server new_server(int domain, int service, int protocol,
   return server;
 }
 
-void set_handler(struct Server *server, char *(*handler)(struct Request *req)) {
+void set_handler(struct Server* server, char* (*handler)(struct Request* req)) {
   server->handler = handler;
 }
 
-void launch(struct Server *server) {
+struct ThreadArgs {
+  struct Server* server;
+  int socket;
+};
+
+void* handle_conn(void* arg) {
+  struct ThreadArgs* args = (struct ThreadArgs*)arg;
+  struct Server* server = args->server;
+  int socket = args->socket;
+
+  char buffer[30000];
+  read(socket, buffer, 30000);
+  puts(buffer);
+
+  struct Request req;
+
+  char* body = server->handler(&req);
+
+  char res[300 + strlen(body)];
+  strcat(res, "HTTP/1.1 200 OK\n"
+              "Date: Mon, 21 Jan 2025 12:00:00 GMT\n"
+              "Server: MySimpleServer/1.0\n"
+              "Content-Type: text/html\n"
+              "Connection: close\n"
+              "Content-Length: ");
+
+  char content_length[20];
+  sprintf(content_length, "%ld\n\n", strlen(body));
+
+  strcat(strcat(res, content_length), body);
+
+  write(socket, res, strlen(res));
+  close(socket);
+
+  return NULL;
+}
+
+void launch(struct Server* server) {
   while (true) {
-    char buffer[30000];
     int address_length = sizeof(server->address);
-    int new_socket = accept(server->socket, (struct sockaddr *)&server->address,
-                            (socklen_t *)&address_length);
-    read(new_socket, buffer, 30000);
-    puts(buffer);
+    int new_socket = accept(server->socket, (struct sockaddr*)&server->address,
+                            (socklen_t*)&address_length);
 
-    struct Request req;
-    char *body = server->handler(&req);
+    struct ThreadArgs* args = malloc(sizeof(struct ThreadArgs));
+    args->server = server;
+    args->socket = new_socket;
 
-    char res[300 + strlen(body)];
-    strcat(res, "HTTP/1.1 200 OK\n"
-                "Date: Mon, 21 Jan 2025 12:00:00 GMT\n"
-                "Server: MySimpleServer/1.0\n"
-                "Content-Type: text/html\n"
-                "Connection: close\n"
-                "Content-Length: ");
-
-    char content_length[20];
-    sprintf(content_length, "%ld\n\n", strlen(body));
-
-    strcat(strcat(res, content_length), body);
-
-    write(new_socket, res, strlen(res));
-    close(new_socket);
+    pthread_t thread;
+    pthread_create(&thread, NULL, handle_conn, args);
+    pthread_join(thread, NULL);
   }
 }
