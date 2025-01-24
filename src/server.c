@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #define MAX_EVENTS 10
+#define BUFFER_SIZE 4096
 
 // set socket to non-blocking
 int set_non_blocking(int sockfd) {
@@ -60,8 +61,45 @@ void set_handler(struct Server* server, char* (*handler)(struct Request* req)) {
 }
 
 void handle_conn(struct Server* server, int client_socket) {
-  char buffer[1500];
-  int bytes_read = read(client_socket, buffer, sizeof(buffer) - 1);
+  char* buffer = malloc(BUFFER_SIZE);
+  size_t buffer_capacity = BUFFER_SIZE;
+  int bytes_read = 0;
+  int read_size;
+
+  while (((read_size = read(client_socket, buffer + bytes_read,
+                            BUFFER_SIZE - 1)) > 0)) {
+    bytes_read += read_size;
+
+    if (read_size < 0) {
+      perror("read failed");
+      free(buffer);
+      close(client_socket);
+      return;
+    } else if (bytes_read < sizeof(buffer)) {
+      break;
+    }
+
+    char* new_buffer = realloc(buffer, bytes_read + BUFFER_SIZE + 1);
+    if (!new_buffer) {
+      perror("realloc failed");
+      free(buffer);
+      close(client_socket);
+      return;
+    }
+    buffer = new_buffer;
+    buffer_capacity += BUFFER_SIZE;
+  }
+
+  if (bytes_read < 1) {
+    close(client_socket);
+    return;
+  } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+    perror("read error");
+    close(client_socket);
+    return;
+  }
+
+  buffer[bytes_read] = '\0';
 
   if (bytes_read > 0) {
     buffer[bytes_read] = '\0'; // null terminate received data
@@ -120,7 +158,6 @@ void launch(struct Server* server) {
   printf("server running and listening on port %d\n", server->port);
 
   struct epoll_event events[MAX_EVENTS];
-  char preallocated_buffers[MAX_EVENTS][1500];
 
   while (true) {
     int num_events = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
