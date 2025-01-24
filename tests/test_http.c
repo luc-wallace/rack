@@ -15,10 +15,8 @@ int main(int argc, char *argv[]) {
     port = atoi(argv[1]);
   }
 
-  printf("server running on port %d\n", port);
-
   struct Server server =
-      new_server(AF_INET, SOCK_STREAM, 0, INADDR_ANY, port, 10);
+      new_server(AF_INET, SOCK_STREAM, 0, INADDR_ANY, port, 128);
 
   set_handler(&server, &get_home);
 

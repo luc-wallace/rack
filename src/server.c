@@ -1,10 +1,24 @@
 #include "server.h"
 #include "string.h"
-#include <pthread.h>
+#include <arpa/inet.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <sys/epoll.h>
 #include <unistd.h>
+
+#define MAX_EVENTS 10
+
+// set socket to non-blocking
+int set_non_blocking(int sockfd) {
+  int flags = fcntl(sockfd, F_GETFL, 0);
+  if (flags == -1)
+    return -1;
+  return fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
+}
 
 struct Server new_server(int domain, int service, int protocol,
                          unsigned long interface, int port, int backlog) {
@@ -45,55 +59,106 @@ void set_handler(struct Server* server, char* (*handler)(struct Request* req)) {
   server->handler = handler;
 }
 
-struct ThreadArgs {
-  struct Server* server;
-  int socket;
-};
+void handle_conn(struct Server* server, int client_socket) {
+  char buffer[1500];
+  int bytes_read = read(client_socket, buffer, sizeof(buffer) - 1);
 
-void* handle_conn(void* arg) {
-  struct ThreadArgs* args = (struct ThreadArgs*)arg;
-  struct Server* server = args->server;
-  int socket = args->socket;
+  if (bytes_read > 0) {
+    buffer[bytes_read] = '\0'; // null terminate received data
+    printf("received:\n%s\n", buffer);
 
-  char buffer[30000];
-  read(socket, buffer, 30000);
-  puts(buffer);
+    // Process the request using the server's handler
+    struct Request req; // Request is an empty struct
+    char* body = server->handler(&req);
 
-  struct Request req;
+    // Build the HTTP response
+    char res[300 + strlen(body)];
+    strcpy(res, "HTTP/1.1 200 OK\n"
+                "Date: Mon, 21 Jan 2025 12:00:00 GMT\n"
+                "Server: rack/1.0\n"
+                "Content-Type: text/html\n"
+                "Connection: keep-alive\n"
+                "Content-Length: ");
 
-  char* body = server->handler(&req);
+    char content_length[20];
+    sprintf(content_length, "%ld\n\n", strlen(body));
 
-  char res[300 + strlen(body)];
-  strcat(res, "HTTP/1.1 200 OK\n"
-              "Date: Mon, 21 Jan 2025 12:00:00 GMT\n"
-              "Server: MySimpleServer/1.0\n"
-              "Content-Type: text/html\n"
-              "Connection: close\n"
-              "Content-Length: ");
+    strcat(strcat(res, content_length), body);
 
-  char content_length[20];
-  sprintf(content_length, "%ld\n\n", strlen(body));
-
-  strcat(strcat(res, content_length), body);
-
-  write(socket, res, strlen(res));
-  close(socket);
-
-  return NULL;
+    write(client_socket, res, strlen(res));
+    close(client_socket);
+  } else if (bytes_read == 0) { // client disconnected
+    close(client_socket);
+  } else {
+    if (errno != EAGAIN && errno != EWOULDBLOCK) {
+      perror("read error");
+      close(client_socket);
+    }
+  }
 }
 
 void launch(struct Server* server) {
-  while (true) {
-    int address_length = sizeof(server->address);
-    int new_socket = accept(server->socket, (struct sockaddr*)&server->address,
-                            (socklen_t*)&address_length);
-
-    struct ThreadArgs* args = malloc(sizeof(struct ThreadArgs));
-    args->server = server;
-    args->socket = new_socket;
-
-    pthread_t thread;
-    pthread_create(&thread, NULL, handle_conn, args);
-    pthread_join(thread, NULL);
+  int epoll_fd = epoll_create1(0);
+  if (epoll_fd == -1) {
+    perror("failed to create epoll instance");
+    exit(EXIT_FAILURE);
   }
+
+  if (set_non_blocking(server->socket) == -1) {
+    perror("failed to set server socket to non-blocking");
+    exit(EXIT_FAILURE);
+  }
+
+  struct epoll_event event;
+  event.events = EPOLLIN;
+  event.data.fd = server->socket;
+  if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server->socket, &event) == -1) {
+    perror("failed to add server socket to epoll");
+    exit(EXIT_FAILURE);
+  }
+
+  printf("server running and listening on port %d\n", server->port);
+
+  struct epoll_event events[MAX_EVENTS];
+  char preallocated_buffers[MAX_EVENTS][1500];
+
+  while (true) {
+    int num_events = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
+    if (num_events < 0) {
+      perror("epoll wait failed");
+      break;
+    }
+
+    for (int i = 0; i < num_events; i++) {
+      if (events[i].data.fd == server->socket) {
+        while (true) {
+          int client_socket = accept(server->socket, NULL, NULL);
+          if (client_socket == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+              break;
+            perror("accept failed");
+            break;
+          }
+
+          if (set_non_blocking(client_socket) == -1) {
+            perror("failed to set client socket to non-blocking");
+            close(client_socket);
+            continue;
+          }
+
+          event.events = EPOLLIN | EPOLLET;
+          event.data.fd = client_socket;
+          if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_socket, &event) == -1) {
+            perror("failed to add client socket to epoll");
+            close(client_socket);
+          }
+        }
+      } else {
+        int client_socket = events[i].data.fd;
+        handle_conn(server, client_socket);
+      }
+    }
+  }
+
+  close(epoll_fd);
 }
