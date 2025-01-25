@@ -2,11 +2,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-char *get_home(struct Request *req) {
-  return "<h1>Rack test</h1><p>Welcome to my website!</p>";
+void request_handler(HttpRequest* req, HttpResponse* res) {
+  res->body = "<h1>Rack test</h1><p>Welcome to my website!</p>";
+
+  add_header(res, "Content-Type", "text/html");
+  add_header(res, "Connection", "keep-alive");
+
+  res->status_code = HTTP_OK;
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
   int port;
 
   if (argc < 2) {
@@ -15,10 +20,10 @@ int main(int argc, char *argv[]) {
     port = atoi(argv[1]);
   }
 
-  struct Server server =
+  HttpServer server =
       new_server(AF_INET, SOCK_STREAM, 0, INADDR_ANY, port, 128);
 
-  set_handler(&server, &get_home);
+  set_handler(&server, &request_handler);
 
   launch(&server);
   return 0;

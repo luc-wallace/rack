@@ -1,4 +1,5 @@
 #include "server.h"
+#include "http.h"
 #include "string.h"
 #include <arpa/inet.h>
 #include <errno.h>
@@ -21,9 +22,9 @@ int set_non_blocking(int sockfd) {
   return fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
 }
 
-struct Server new_server(int domain, int service, int protocol,
-                         unsigned long interface, int port, int backlog) {
-  struct Server server;
+HttpServer new_server(int domain, int service, int protocol,
+                      unsigned long interface, int port, int backlog) {
+  HttpServer server;
 
   server.domain = domain;
   server.service = service;
@@ -56,30 +57,32 @@ struct Server new_server(int domain, int service, int protocol,
   return server;
 }
 
-void set_handler(struct Server* server, char* (*handler)(struct Request* req)) {
+void set_handler(HttpServer* server, HttpHandler handler) {
   server->handler = handler;
 }
 
-void handle_conn(struct Server* server, int client_socket) {
+void handle_conn(HttpServer* server, int client_socket) {
   char* buffer = malloc(BUFFER_SIZE);
   size_t buffer_capacity = BUFFER_SIZE;
-  int bytes_read = 0;
+  unsigned int bytes_read = 0;
   int read_size;
 
   while (((read_size = read(client_socket, buffer + bytes_read,
                             BUFFER_SIZE - 1)) > 0)) {
-    bytes_read += read_size;
 
     if (read_size < 0) {
       perror("read failed");
       free(buffer);
       close(client_socket);
       return;
-    } else if (bytes_read < sizeof(buffer)) {
+    }
+
+    bytes_read += read_size;
+    if (bytes_read < buffer_capacity) {
       break;
     }
 
-    char* new_buffer = realloc(buffer, bytes_read + BUFFER_SIZE + 1);
+    char* new_buffer = realloc(buffer, bytes_read + BUFFER_SIZE);
     if (!new_buffer) {
       perror("realloc failed");
       free(buffer);
@@ -102,28 +105,35 @@ void handle_conn(struct Server* server, int client_socket) {
   buffer[bytes_read] = '\0';
 
   if (bytes_read > 0) {
-    buffer[bytes_read] = '\0'; // null terminate received data
     printf("received:\n%s\n", buffer);
+    free(buffer);
 
-    // Process the request using the server's handler
-    struct Request req; // Request is an empty struct
-    char* body = server->handler(&req);
+    HttpRequest* req = malloc(sizeof(HttpRequest));
+    HttpResponse* res = malloc(sizeof(HttpResponse));
 
-    // Build the HTTP response
-    char res[300 + strlen(body)];
-    strcpy(res, "HTTP/1.1 200 OK\n"
-                "Date: Mon, 21 Jan 2025 12:00:00 GMT\n"
-                "Server: rack/1.0\n"
-                "Content-Type: text/html\n"
-                "Connection: keep-alive\n"
-                "Content-Length: ");
+    res->header_count = 0;
+    res->header_capacity = 16;
+    res->headers = malloc(sizeof(HttpHeader) * res->header_capacity);
+    res->body = "";
+
+    // call server handler
+    // TODO: check if handler is NULL
+    server->handler(req, res);
 
     char content_length[20];
-    sprintf(content_length, "%ld\n\n", strlen(body));
+    sprintf(content_length, "%ld", strlen(res->body));
+    add_header(res, "Content-Length", content_length);
 
-    strcat(strcat(res, content_length), body);
+    char* res_str = serialise_response(res);
 
-    write(client_socket, res, strlen(res));
+    free(req);
+    free(res->headers);
+    free(res);
+
+    write(client_socket, res_str, strlen(res_str));
+
+    free(res_str);
+
     close(client_socket);
   } else if (bytes_read == 0) { // client disconnected
     close(client_socket);
@@ -135,7 +145,7 @@ void handle_conn(struct Server* server, int client_socket) {
   }
 }
 
-void launch(struct Server* server) {
+void launch(HttpServer* server) {
   int epoll_fd = epoll_create1(0);
   if (epoll_fd == -1) {
     perror("failed to create epoll instance");

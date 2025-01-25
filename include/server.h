@@ -1,11 +1,13 @@
+#ifndef server_h
+#define server_h
+
 #include "http.h"
 #include <netinet/in.h>
 #include <sys/socket.h>
 
-#ifndef server_h
-#define server_h
+typedef void (*HttpHandler)(HttpRequest* req, HttpResponse* res);
 
-struct Server {
+typedef struct HttpServer {
   int domain;
   int service;
   int protocol;
@@ -15,16 +17,16 @@ struct Server {
 
   struct sockaddr_in address;
 
-  char* (*handler)(struct Request* req);
+  HttpHandler handler;
 
   int socket;
-};
+} HttpServer;
 
-struct Server new_server(int domain, int service, int protocol,
-                         unsigned long interface, int port, int backlog);
+HttpServer new_server(int domain, int service, int protocol,
+                      unsigned long interface, int port, int backlog);
 
-void launch(struct Server* server);
+void launch(HttpServer* server);
 
-void set_handler(struct Server* server, char* (*handler)(struct Request* req));
+void set_handler(HttpServer* server, HttpHandler handler);
 
 #endif

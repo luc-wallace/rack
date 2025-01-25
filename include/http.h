@@ -1,6 +1,10 @@
 #ifndef http_h
 #define http_h
 
+#include <stddef.h>
+
+#define HTTP_VERSION "HTTP/1.1"
+
 typedef enum HttpMethod {
   HTTP_GET,
   HTTP_HEAD,
@@ -37,8 +41,15 @@ typedef struct HttpResponse {
   HttpStatusCode status_code;
   HttpHeader* headers;
   size_t header_count;
+  size_t header_capacity;
 
   char* body;
 } HttpResponse;
 
 #endif
+
+char* serialise_response(HttpResponse* res);
+
+void add_header(HttpResponse* res, char name[], char value[]);
+
+void set_status_code(HttpResponse* res, HttpStatusCode code);
