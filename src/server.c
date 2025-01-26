@@ -11,6 +11,7 @@
 #include <sys/epoll.h>
 #include <unistd.h>
 
+#define BACKLOG 10
 #define MAX_EVENTS 10
 #define BUFFER_SIZE 4096
 
@@ -22,22 +23,16 @@ int set_non_blocking(int sockfd) {
   return fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
 }
 
-HttpServer new_server(int domain, int service, int protocol,
-                      unsigned long interface, int port, int backlog) {
+HttpServer new_server(int port) {
   HttpServer server;
-
-  server.domain = domain;
-  server.service = service;
-  server.protocol = protocol;
-  server.interface = interface;
+  ;
   server.port = port;
-  server.backlog = backlog;
 
-  server.address.sin_family = domain;
+  server.address.sin_family = AF_INET;
   server.address.sin_port = htons(port);
-  server.address.sin_addr.s_addr = htonl(interface);
+  server.address.sin_addr.s_addr = htonl(INADDR_ANY);
 
-  server.socket = socket(domain, service, protocol);
+  server.socket = socket(AF_INET, SOCK_STREAM, 0);
   if (server.socket < 0) {
     perror("failed to connect to socket");
     exit(EXIT_FAILURE);
@@ -49,7 +44,7 @@ HttpServer new_server(int domain, int service, int protocol,
     exit(EXIT_FAILURE);
   }
 
-  if (listen(server.socket, server.backlog) < 0) {
+  if (listen(server.socket, BACKLOG) < 0) {
     perror("failed to listen to server");
     exit(EXIT_FAILURE);
   }

@@ -8,22 +8,13 @@
 typedef void (*HttpHandler)(HttpRequest* req, HttpResponse* res);
 
 typedef struct HttpServer {
-  int domain;
-  int service;
-  int protocol;
-  unsigned long interface;
   int port;
-  int backlog;
-
   struct sockaddr_in address;
-
   HttpHandler handler;
-
   int socket;
 } HttpServer;
 
-HttpServer new_server(int domain, int service, int protocol,
-                      unsigned long interface, int port, int backlog);
+HttpServer new_server(int port);
 
 void launch(HttpServer* server);
 

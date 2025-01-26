@@ -20,11 +20,9 @@ int main(int argc, char* argv[]) {
     port = atoi(argv[1]);
   }
 
-  HttpServer server =
-      new_server(AF_INET, SOCK_STREAM, 0, INADDR_ANY, port, 128);
-
+  HttpServer server = new_server(port);
   set_handler(&server, &request_handler);
-
   launch(&server);
+
   return 0;
 }
