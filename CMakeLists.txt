@@ -10,12 +10,16 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 set(SOURCES
     src/server.c
     src/http.c
+    src/parser.c
+    src/list.c
 )
 
 add_library(http STATIC ${SOURCES})
 
-add_executable(tests tests/test_http.c)
+add_executable(test_http tests/test_http.c)
+target_link_libraries(test_http http)
 
-target_link_libraries(tests http)
+add_executable(test_list tests/test_list.c)
+target_link_libraries(test_list http)
 
 target_compile_options(http PRIVATE -Wall -Wextra -pedantic)
