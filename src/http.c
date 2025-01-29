@@ -24,6 +24,10 @@ char* status_code_to_str(HttpStatusCode code) {
 }
 
 void add_header(HttpResponse* res, char name[], char value[]) {
+  if (res->headers == NULL) {
+    return;
+  }
+
   if (res->header_count >= res->header_capacity) {
     size_t new_capacity = res->header_capacity * 2; // Double the capacity
     HttpHeader* new_headers =
@@ -68,14 +72,16 @@ char* serialise_response(HttpResponse* res) {
   }
   ptr += written;
 
-  for (size_t i = 0; i < res->header_count; i++) {
-    written = snprintf(ptr, estimated_size - (ptr - buffer), "\r\n%s: %s",
-                       res->headers[i].name, res->headers[i].value);
-    if (written < 0) {
-      free(buffer);
-      return NULL;
+  if (res->headers != NULL) {
+    for (size_t i = 0; i < res->header_count; i++) {
+      written = snprintf(ptr, estimated_size - (ptr - buffer), "\r\n%s: %s",
+                         res->headers[i].name, res->headers[i].value);
+      if (written < 0) {
+        free(buffer);
+        return NULL;
+      }
+      ptr += written;
     }
-    ptr += written;
   }
 
   snprintf(ptr, estimated_size - (ptr - buffer), "\r\n\r\n");
