@@ -9,6 +9,11 @@ Planned features:
 - Routing with paths/methods
 - JSON?
 
+# Why?
+
+Because I wanted to learn how networking and concurrency works at a low level using
+system calls. I also just wanted to work on a project in C to improve my skills.
+
 # Usage
 
 Build the project by creating a build directory in the root folder and running:
