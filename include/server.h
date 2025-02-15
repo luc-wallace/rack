@@ -14,6 +14,14 @@ typedef struct HttpServer {
   int socket;
 } HttpServer;
 
+typedef enum ParseStage {
+  STAGE_METHOD,
+  STAGE_PATH,
+  STAGE_HEADER_NAME,
+  STAGE_HEADER_VALUE,
+  STAGE_BODY
+} ParseStage;
+
 HttpServer new_server(int port);
 
 void launch(HttpServer* server);

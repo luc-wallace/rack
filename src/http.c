@@ -28,16 +28,12 @@ void add_header(HttpResponse* res, char name[], char value[]) {
     return;
   }
 
-  if (res->header_count >= res->header_capacity) {
-    size_t new_capacity = res->header_capacity * 2; // Double the capacity
-    HttpHeader* new_headers =
-        realloc(res->headers, sizeof(HttpHeader) * new_capacity);
-    res->headers = new_headers;
-    res->header_capacity = new_capacity;
-  }
+  size_t header_size = sizeof(HttpHeader);
+  HttpHeader* header = malloc(header_size);
+  header->name = name;
+  header->value = value;
 
-  res->headers[res->header_count] = (HttpHeader){name, value};
-  res->header_count += 1;
+  list_append(res->headers, header, header_size);
 }
 
 void set_status_code(HttpResponse* res, HttpStatusCode code) {
@@ -47,17 +43,24 @@ void set_status_code(HttpResponse* res, HttpStatusCode code) {
 char* serialise_response(HttpResponse* res) {
   size_t estimated_size = strlen(HTTP_VERSION) + 64 +
                           strlen(status_code_to_str(res->status_code)) + 1;
+  List* headers_list = res->headers;
+  Node* node = headers_list->head;
+  HttpHeader header;
 
-  for (size_t i = 0; i < res->header_count; i++) {
-    estimated_size += strlen(res->headers[i].name) +
-                      strlen(res->headers[i].value) + 4; // ": " + "\r\n"
+  for (int i = 0; i < headers_list->length; i++) {
+    header = *(HttpHeader*)node->data;
+    estimated_size += strlen(header.name) + strlen(header.value) + 4;
+
+    if ((node = node->next) == NULL) {
+      break;
+    }
   }
 
   estimated_size += strlen(res->body) + 4;
 
   char* buffer = malloc(estimated_size);
   if (!buffer) {
-    perror("Memory allocation failed for response buffer");
+    perror("failed to allocate memory for response buffer");
     return NULL;
   }
 
@@ -72,15 +75,20 @@ char* serialise_response(HttpResponse* res) {
   }
   ptr += written;
 
-  if (res->headers != NULL) {
-    for (size_t i = 0; i < res->header_count; i++) {
-      written = snprintf(ptr, estimated_size - (ptr - buffer), "\r\n%s: %s",
-                         res->headers[i].name, res->headers[i].value);
-      if (written < 0) {
-        free(buffer);
-        return NULL;
-      }
-      ptr += written;
+  node = headers_list->head;
+  int i = 0;
+
+  for (int i = 0; i < headers_list->length; i++) {
+    header = *(HttpHeader*)node->data;
+    written = snprintf(ptr, estimated_size - (ptr - buffer), "\r\n%s: %s",
+                       header.name, header.value);
+    if (written < 0) {
+      free(buffer);
+      return NULL;
+    }
+    ptr += written;
+    if ((node = node->next) == NULL) {
+      break;
     }
   }
 

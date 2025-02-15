@@ -1,21 +1,10 @@
 #ifndef http_h
 #define http_h
 
+#include "list.h"
 #include <stddef.h>
 
 #define HTTP_VERSION "HTTP/1.1"
-
-typedef enum HttpMethod {
-  HTTP_GET,
-  HTTP_HEAD,
-  HTTP_POST,
-  HTTP_PUT,
-  HTTP_DELETE,
-  HTTP_CONNECT,
-  HTTP_OPTIONS,
-  HTTP_TRACE,
-  HTTP_PATCH
-} HttpMethod;
 
 typedef struct HttpHeader {
   const char* name;
@@ -23,9 +12,10 @@ typedef struct HttpHeader {
 } HttpHeader;
 
 typedef struct HttpRequest {
-  HttpMethod method;
+  const char* method;
   const char* path;
   const char* body;
+  List* headers;
 } HttpRequest;
 
 typedef enum HttpStatusCode {
@@ -39,17 +29,14 @@ typedef enum HttpStatusCode {
 
 typedef struct HttpResponse {
   HttpStatusCode status_code;
-  HttpHeader* headers;
-  size_t header_count;
-  size_t header_capacity;
-
+  List* headers;
   char* body;
 } HttpResponse;
-
-#endif
 
 char* serialise_response(HttpResponse* res);
 
 void add_header(HttpResponse* res, char name[], char value[]);
 
 void set_status_code(HttpResponse* res, HttpStatusCode code);
+
+#endif

@@ -15,7 +15,7 @@ int main(int argc, char* argv[]) {
   int port;
 
   if (argc < 2) {
-    port = 80;
+    port = 0;
   } else {
     port = atoi(argv[1]);
   }

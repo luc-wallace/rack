@@ -1,5 +1,6 @@
 #include "server.h"
 #include "http.h"
+
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -24,7 +25,6 @@ int set_non_blocking(int sockfd) {
 
 HttpServer new_server(int port) {
   HttpServer server;
-  ;
   server.port = port;
 
   server.address.sin_family = AF_INET;
@@ -47,6 +47,12 @@ HttpServer new_server(int port) {
     perror("failed to listen to server");
     exit(EXIT_FAILURE);
   }
+
+  struct sockaddr_in sin;
+  socklen_t len = sizeof(sin);
+  getsockname(server.socket, (struct sockaddr*)&sin, &len);
+  
+  printf("server address: http://localhost:%d\n", ntohs(sin.sin_port));
 
   return server;
 }
@@ -99,35 +105,99 @@ void handle_conn(HttpServer* server, int client_socket) {
   buffer[bytes_read] = '\0';
 
   if (bytes_read > 0) {
-    printf("received:\n%s\n", buffer);
-    free(buffer);
+    HttpRequest req;
+    req.headers = list_init();
 
-    HttpRequest* req = malloc(sizeof(HttpRequest));
-    HttpResponse* res = malloc(sizeof(HttpResponse));
+    ParseStage parse_stage = STAGE_METHOD;
 
-    res->header_count = 0;
-    res->header_capacity = 16;
-    res->headers = malloc(sizeof(HttpHeader) * res->header_capacity);
-    res->body = "";
+    char* method;
+    char* path;
+
+    HttpHeader* cur_header;
+
+    // index being addressed in buffer
+    size_t buf_index = 0;
+    size_t cursor_tail = 0;
+    for (size_t cursor_head = 0; cursor_head < bytes_read; cursor_head++) {
+      switch (parse_stage) {
+      case STAGE_METHOD:
+        if (cursor_head > 7) {
+          goto malformed_request; // invalid http methods
+        }
+        if (buffer[cursor_head] == ' ') {
+          size_t size = cursor_head - cursor_tail;
+
+          method = malloc((size + 1) * sizeof(char));
+          memcpy(method, &buffer[cursor_tail], size);
+
+          method[size] = '\0';
+          parse_stage = STAGE_PATH;
+          cursor_tail = cursor_head + 1;
+          buf_index = 0;
+
+          continue;
+        }
+        break;
+
+      case STAGE_PATH:
+        if (buffer[cursor_head] == ' ' || buffer[cursor_head] == '\n') {
+          size_t size = cursor_head - cursor_tail;
+          path = malloc((size + 1) * sizeof(char));
+          memcpy(path, &buffer[cursor_tail], size);
+          path[size] = '\0';
+          parse_stage = STAGE_HEADER_NAME;
+          cursor_tail = cursor_head + 1;
+          continue;
+        }
+        break;
+
+      case STAGE_HEADER_NAME:
+        break;
+      }
+
+      if (parse_stage == STAGE_HEADER_NAME) {
+        break;
+      }
+      buf_index++;
+    }
+
+    printf("%s %s\n", method, path);
+
+    HttpResponse res;
+
+    res.headers = list_init();
+    res.body = "";
 
     // call server handler
     // TODO: check if handler is NULL
-    server->handler(req, res);
+    server->handler(&req, &res);
 
     char content_length[20];
-    sprintf(content_length, "%ld", strlen(res->body));
-    add_header(res, "Content-Length", content_length);
+    sprintf(content_length, "%ld", strlen(res.body));
+    add_header(&res, "Content-Length", content_length);
 
-    char* res_str = serialise_response(res);
-
-    free(req);
-    free(res->headers);
-    free(res);
-
+    char* res_str = serialise_response(&res);
     write(client_socket, res_str, strlen(res_str));
 
     free(res_str);
+    list_free(res.headers);
 
+    if (0) {
+    malformed_request: // unified error handler for malformed HTTP requests
+      HttpResponse err_res;
+
+      err_res.status_code = HTTP_BAD_REQUEST;
+      err_res.body = "http error: malformed request";
+      add_header(&err_res, "Content-Type", "text");
+      add_header(&err_res, "Connection", "close");
+
+      char* res_str = serialise_response(&err_res);
+      write(client_socket, res_str, strlen(res_str));
+      free(res_str);
+      list_free(err_res.headers);
+    }
+
+    list_free(req.headers);
     close(client_socket);
   } else if (bytes_read == 0) { // client disconnected
     close(client_socket);
@@ -159,7 +229,7 @@ void launch(HttpServer* server) {
     exit(EXIT_FAILURE);
   }
 
-  printf("server running and listening on port %d\n", server->port);
+  printf("server running\n");
 
   struct epoll_event events[MAX_EVENTS];
 

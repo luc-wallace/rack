@@ -10,7 +10,6 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 set(SOURCES
     src/server.c
     src/http.c
-    src/parser.c
     src/list.c
 )
 
